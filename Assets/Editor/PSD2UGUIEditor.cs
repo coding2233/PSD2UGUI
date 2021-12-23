@@ -13,6 +13,7 @@ using System.Text.RegularExpressions;
 using UnityEditor;
 using UnityEditor.IMGUI.Controls;
 using UnityEngine;
+using UnityEngine.UI;
 
 public class PSD2UGUIEditor : EditorWindow
 {
@@ -25,7 +26,7 @@ public class PSD2UGUIEditor : EditorWindow
     private float pixelsToUnitSize = 100.0f;
 
     private Dictionary<string, string> _uniqueSprites;
-
+    private Vector2 _psdBaseLayerSize;
 
     [MenuItem("Tools/PSD2UGUIEditor")]
     static void Main()
@@ -38,11 +39,7 @@ public class PSD2UGUIEditor : EditorWindow
         _treeViewState = new TreeViewState();
     }
 
-    // Update is called once per frame
-    void Update()
-    {
-        
-    }
+   
     private void OnGUI()
     {
         GUILayout.Label(_psdFilePath);
@@ -86,11 +83,13 @@ public class PSD2UGUIEditor : EditorWindow
             if (GUILayout.Button("Export sprites & Create prefab"))
             {
                 ExportSprites();
+                CreatePrefab(_layerTreeView.LayerNodeRoot);
             }
             GUILayout.EndHorizontal();
         }
     }
 
+    //导出Sprite
     private void ExportSprites()
     {
         if (!string.IsNullOrEmpty(_exportAssetPath) && Directory.Exists(_exportAssetPath))
@@ -100,19 +99,74 @@ public class PSD2UGUIEditor : EditorWindow
         }
     }
 
+    private void CreatePrefab(LayerNode layerNode)
+    {
+        var rootRectTransform = CreateRectTransform(layerNode);
+        string path =$"{_exportAssetPath}/{layerNode.EnglishName}.prefab";
+        PrefabUtility.CreatePrefab(path, rootRectTransform.gameObject);
+        DestroyImmediate(rootRectTransform.gameObject);
+        AssetDatabase.Refresh();
+    }
+
+    private RectTransform CreateRectTransform(LayerNode layerNode,RectTransform parent=null)
+    {
+        var rectTrans = new GameObject(layerNode.EnglishName).AddComponent<RectTransform>();
+        if (parent != null)
+        {
+            rectTrans.SetParent(parent);
+        }
+
+        rectTrans.localScale = Vector3.one;
+        rectTrans.localPosition = Vector3.zero;
+
+        if (!string.IsNullOrEmpty(layerNode.SpritePath))
+        {
+            rectTrans.gameObject.AddComponent<Image>().sprite =AssetDatabase.LoadAssetAtPath<Sprite>(layerNode.SpritePath);
+        }
+     
+        if (layerNode.Layer != null&& layerNode.Layer.Rect != Rect.zero)
+        {
+            var layer = layerNode.Layer;
+            rectTrans.sizeDelta = layer.Rect.size;
+            float positionX = layer.Rect.x - _psdBaseLayerSize.x * 0.5f+ layer.Rect.width*0.5f;
+            float positionY = _psdBaseLayerSize.y * 0.5f - layer.Rect.y- layer.Rect.height*0.5f;
+            rectTrans.anchoredPosition = new Vector2(positionX, positionY);
+        }
+        else
+        {
+            rectTrans.sizeDelta = _psdBaseLayerSize;
+        }
+
+        //倒序创建
+        for (int i = layerNode.Children.Count-1; i >= 0; i--)
+        {
+            CreateRectTransform(layerNode.Children[i], rectTrans);
+        }
+
+        return rectTrans;
+    }
+
 
     private void ExportLayerNode(LayerNode layerNode)
     {
         if (layerNode == null)
             return;
 
+        //转换为英文名称
+        string layerNodeName = layerNode.DisplayName;
+        layerNodeName = CheckName(layerNodeName);
+        var englishName = GetEnglishName(layerNodeName);
+        englishName = CheckName(englishName, "_");
+        layerNode.EnglishName = string.IsNullOrEmpty(englishName) ? layerNode.DisplayName : englishName;
+
         if (layerNode.Layer != null)
         {
             Texture2D tex = CreateTexture(layerNode.Layer);
             if (tex != null)
             {
-                var sprite = SaveAsset(tex, layerNode.Layer.Name);
-                layerNode.Sprite = sprite;
+                //获取对应的sprite
+                var spritePath = SaveAsset(tex, englishName);
+                layerNode.SpritePath = spritePath;
                 DestroyImmediate(tex);
             }
         }
@@ -125,19 +179,25 @@ public class PSD2UGUIEditor : EditorWindow
 
     private LayerNode GetLayerNodeRoot(PsdFile psdFile,string rootName=null)
     {
+        _psdBaseLayerSize = psdFile.BaseLayer.Rect.size;
+
         List<Layer> layers = new List<Layer>(psdFile.Layers.ToArray());
         layers.Reverse();
         Stack<LayerNode> groupLayerNode = new Stack<LayerNode>();
-        LayerNode layerNodeRoot = new LayerNode() { DisplayName =string.IsNullOrEmpty(rootName)?"Root": rootName, Id = 0 };
+        LayerNode layerNodeRoot = new LayerNode();
+        layerNodeRoot.Id = 0;
+        //layerNodeRoot.Layer = psdFile.BaseLayer;
+        layerNodeRoot.DisplayName="LayerRoot";
         groupLayerNode.Push(layerNodeRoot);
         for (int i = 0; i < layers.Count; i++)
         {
             Layer layer = layers[i];
             LayerNode layerNode = new LayerNode();
             layerNode.Id = i+1;
-            layerNode.DisplayName = layer.Name;
+            layerNode.DisplayName = string.IsNullOrEmpty(layer.Name)?$"Layer{layerNode.Id}": layer.Name;
             layerNode.Layer = layer;
 
+            Debug.Log($"{layer.Name} {layer.Rect}");
             LayerSectionInfo sectionInfo = GetLayerSectionInfo(layer);
             if (sectionInfo != null)
             {
@@ -205,13 +265,18 @@ public class PSD2UGUIEditor : EditorWindow
         return tex;
     }
 
-    private Sprite SaveAsset(Texture2D tex, string suffix)
+    private string SaveAsset(Texture2D tex, string suffix)
     {
-        suffix = CheckName(suffix);
-        var englishName = GetEnglishName(suffix);
-        suffix = CheckName(englishName,"_");
+        foreach (var item in _uniqueSprites.Values)
+        {
+            if (item.EndsWith($"{suffix}.png"))
+            {
+                suffix += "_" + Guid.NewGuid().ToString().Substring(0, 6);
+                break;
+            }
+        }
 
-        string path = Path.Combine(_exportAssetPath, $"{suffix}.png");
+        string path = Path.Combine(_exportAssetPath, $"Sprites/{suffix}.png");
         string dir = Path.GetDirectoryName(path);
         if (!Directory.Exists(dir))
         {
@@ -225,22 +290,29 @@ public class PSD2UGUIEditor : EditorWindow
             var oldSpritePath = _uniqueSprites[md5];
             Debug.Log($"Existing sprite: {md5}  {oldSpritePath} & {path}");
             File.Delete(path);
-            return AssetDatabase.LoadAssetAtPath<Sprite>(oldSpritePath);
+            return oldSpritePath;
         }
         AssetDatabase.Refresh();
         // Load the texture so we can change the type
         AssetDatabase.LoadAssetAtPath(path, typeof(Texture2D));
         TextureImporter textureImporter = AssetImporter.GetAtPath(path) as TextureImporter;
-        textureImporter.textureType = TextureImporterType.Sprite;
-        textureImporter.spriteImportMode = SpriteImportMode.Single;
-        textureImporter.spritePivot = new Vector2(0.5f, 0.5f);
-        textureImporter.spritePixelsPerUnit = pixelsToUnitSize;
+        if (textureImporter != null)
+        {
+            textureImporter.textureType = TextureImporterType.Sprite;
+            textureImporter.spriteImportMode = SpriteImportMode.Single;
+            textureImporter.spritePivot = new Vector2(0.5f, 0.5f);
+            textureImporter.spritePixelsPerUnit = pixelsToUnitSize;
+        }
+        else
+        {
+            Debug.LogWarning($"textureImporter is null! {path}");
+        }
         AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceUpdate);
 
         var sprite = (Sprite)AssetDatabase.LoadAssetAtPath(path, typeof(Sprite));
         //Debug.Log($"文件md5: {md5} {path}");
-        _uniqueSprites.Add(md5, AssetDatabase.GetAssetPath(sprite));
-        return sprite;
+        _uniqueSprites.Add(md5, path);
+        return path;
     }
 
     //获取英文名称
@@ -295,10 +367,11 @@ public class PSD2UGUIEditor : EditorWindow
                 }
             }
         }
+        Debug.LogWarning($"获取英文名称失败: ");
         return name;
     }
 
-
+    //去掉名称中的特殊符号以及多余的空格
     private string CheckName(string name, string replace = "")
     {
         name = Regex.Replace(name.Trim(), @"[^a-zA-Z0-9\u4e00-\u9fa5\s]", "").Trim().Replace(" ", replace).Trim();
@@ -326,7 +399,6 @@ public class PSD2UGUIEditor : EditorWindow
     }
 
     //获取文件的md5值
-
     private string GetFileMD5(byte[] data)
     {
         System.Security.Cryptography.MD5 md5 = new System.Security.Cryptography.MD5CryptoServiceProvider();
@@ -403,8 +475,9 @@ class LayerNode
 {
     public int Id;
     public string DisplayName;
+    public string EnglishName;
     public Layer Layer;
-    public Sprite Sprite;
+    public string SpritePath;
     public List<LayerNode> Children=new List<LayerNode>();
 }
 
