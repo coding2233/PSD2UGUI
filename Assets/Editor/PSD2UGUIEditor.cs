@@ -322,7 +322,7 @@ public class PSD2UGUIEditor : EditorWindow
     {
         if (Regex.IsMatch(name, @"[\u4e00-\u9fa5]"))
         {
-            var responseContent = Youdao(name).Replace("\n", "").Replace("\r", "").Replace(" ", "");
+            var responseContent = Youdao(name).Replace("\n", "").Replace("\r", "");
             if (!string.IsNullOrEmpty(responseContent))
             {
                 string regexPattern = ",\"translation\":\\[\"(.+)\"\\],";
