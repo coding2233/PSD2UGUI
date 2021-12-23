@@ -18,7 +18,7 @@ using UnityEngine.UI;
 
 public class PSD2UGUIEditor : EditorWindow
 {
-    private string _psdFilePath="";
+    private string _psdFilePath = "";
     private string _exportAssetPath = "Assets";
     //private PsdFile _psdFile;
     private LayerTreeView _layerTreeView;
@@ -40,7 +40,7 @@ public class PSD2UGUIEditor : EditorWindow
         _treeViewState = new TreeViewState();
     }
 
-   
+
     private void OnGUI()
     {
         GUILayout.Label(_psdFilePath);
@@ -50,12 +50,12 @@ public class PSD2UGUIEditor : EditorWindow
             if (!string.IsNullOrEmpty(_psdFilePath)
                 && File.Exists(_psdFilePath))
             {
-                var psdFile = new PsdFile(_psdFilePath,Encoding.Default);
-                var layerNodeRoot = GetLayerNodeRoot(psdFile,Path.GetFileNameWithoutExtension(_psdFilePath));
+                var psdFile = new PsdFile(_psdFilePath, Encoding.Default);
+                var layerNodeRoot = GetLayerNodeRoot(psdFile, Path.GetFileNameWithoutExtension(_psdFilePath));
                 _layerTreeView = new LayerTreeView(_treeViewState, layerNodeRoot);
             }
         }
-       
+
         _layerTreeView?.OnGUI(new Rect(0, 100, Screen.width, Screen.height));
         if (_layerTreeView != null)
         {
@@ -67,7 +67,7 @@ public class PSD2UGUIEditor : EditorWindow
                 if (!string.IsNullOrEmpty(exportAssetPath))
                 {
                     exportAssetPath = Path.GetFullPath(exportAssetPath).Replace(Path.GetFullPath(Application.dataPath), "");
-                    exportAssetPath ="Assets"+exportAssetPath.Replace("\\", "/");
+                    exportAssetPath = "Assets" + exportAssetPath.Replace("\\", "/");
                     if (Directory.Exists(exportAssetPath))
                     {
                         _exportAssetPath = exportAssetPath;
@@ -104,13 +104,13 @@ public class PSD2UGUIEditor : EditorWindow
     private void CreatePrefab(LayerNode layerNode)
     {
         var rootRectTransform = CreateRectTransform(layerNode);
-        string path =$"{_exportAssetPath}/{layerNode.EnglishName}.prefab";
+        string path = $"{_exportAssetPath}/{layerNode.EnglishName}.prefab";
         PrefabUtility.CreatePrefab(path, rootRectTransform.gameObject);
         DestroyImmediate(rootRectTransform.gameObject);
         AssetDatabase.Refresh();
     }
 
-    private RectTransform CreateRectTransform(LayerNode layerNode,RectTransform parent=null)
+    private RectTransform CreateRectTransform(LayerNode layerNode, RectTransform parent = null)
     {
         var rectTrans = new GameObject(layerNode.EnglishName).AddComponent<RectTransform>();
         if (parent != null)
@@ -123,15 +123,15 @@ public class PSD2UGUIEditor : EditorWindow
 
         if (!string.IsNullOrEmpty(layerNode.SpritePath))
         {
-            rectTrans.gameObject.AddComponent<Image>().sprite =AssetDatabase.LoadAssetAtPath<Sprite>(layerNode.SpritePath);
+            rectTrans.gameObject.AddComponent<Image>().sprite = AssetDatabase.LoadAssetAtPath<Sprite>(layerNode.SpritePath);
         }
-     
-        if (layerNode.Layer != null&& layerNode.Layer.Rect != Rect.zero)
+
+        if (layerNode.Layer != null && layerNode.Layer.Rect != Rect.zero)
         {
             var layer = layerNode.Layer;
             rectTrans.sizeDelta = layer.Rect.size;
-            float positionX = layer.Rect.x - _psdBaseLayerSize.x * 0.5f+ layer.Rect.width*0.5f;
-            float positionY = _psdBaseLayerSize.y * 0.5f - layer.Rect.y- layer.Rect.height*0.5f;
+            float positionX = layer.Rect.x - _psdBaseLayerSize.x * 0.5f + layer.Rect.width * 0.5f;
+            float positionY = _psdBaseLayerSize.y * 0.5f - layer.Rect.y - layer.Rect.height * 0.5f;
             rectTrans.anchoredPosition = new Vector2(positionX, positionY);
         }
         else
@@ -140,7 +140,7 @@ public class PSD2UGUIEditor : EditorWindow
         }
 
         //倒序创建
-        for (int i = layerNode.Children.Count-1; i >= 0; i--)
+        for (int i = layerNode.Children.Count - 1; i >= 0; i--)
         {
             CreateRectTransform(layerNode.Children[i], rectTrans);
         }
@@ -172,14 +172,14 @@ public class PSD2UGUIEditor : EditorWindow
                 DestroyImmediate(tex);
             }
         }
-        
+
         foreach (var item in layerNode.Children)
         {
             ExportLayerNode(item);
         }
     }
 
-    private LayerNode GetLayerNodeRoot(PsdFile psdFile,string rootName=null)
+    private LayerNode GetLayerNodeRoot(PsdFile psdFile, string rootName = null)
     {
         _psdBaseLayerSize = psdFile.BaseLayer.Rect.size;
 
@@ -189,14 +189,14 @@ public class PSD2UGUIEditor : EditorWindow
         LayerNode layerNodeRoot = new LayerNode();
         layerNodeRoot.Id = 0;
         //layerNodeRoot.Layer = psdFile.BaseLayer;
-        layerNodeRoot.DisplayName="LayerRoot";
+        layerNodeRoot.DisplayName = "LayerRoot";
         groupLayerNode.Push(layerNodeRoot);
         for (int i = 0; i < layers.Count; i++)
         {
             Layer layer = layers[i];
             LayerNode layerNode = new LayerNode();
-            layerNode.Id = i+1;
-            layerNode.DisplayName = string.IsNullOrEmpty(layer.Name)?$"Layer{layerNode.Id}": layer.Name;
+            layerNode.Id = i + 1;
+            layerNode.DisplayName = string.IsNullOrEmpty(layer.Name) ? $"Layer{layerNode.Id}" : layer.Name;
             layerNode.Layer = layer;
 
             Debug.Log($"{layer.Name} {layer.Rect}");
@@ -219,7 +219,7 @@ public class PSD2UGUIEditor : EditorWindow
                 groupLayerNode.Peek().Children.Add(layerNode);
             }
         }
-        
+
         return layerNodeRoot;
     }
 
@@ -320,25 +320,48 @@ public class PSD2UGUIEditor : EditorWindow
     //获取英文名称
     private string GetEnglishName(string name)
     {
-        var responseContent = Youdao(name).Replace("\n","").Replace("\r","").Replace(" ","");
-        if (!string.IsNullOrEmpty(responseContent))
+        if (Regex.IsMatch(name, @"[\u4e00-\u9fa5]"))
         {
-            string regexPattern = ",\"translation\":\\[\"(.+)\"\\],";
-            var match = Regex.Match(responseContent, regexPattern,RegexOptions.Singleline);
-            if (match.Success && match.Groups != null)
+            var responseContent = Youdao(name).Replace("\n", "").Replace("\r", "").Replace(" ", "");
+            if (!string.IsNullOrEmpty(responseContent))
             {
-                var matchGroups = match.Groups;
-                if (matchGroups.Count > 1)
+                string regexPattern = ",\"translation\":\\[\"(.+)\"\\],";
+                var match = Regex.Match(responseContent, regexPattern, RegexOptions.Singleline);
+                if (match.Success && match.Groups != null)
                 {
-                    responseContent = match.Groups[1].Value;
-                    if (!string.IsNullOrEmpty(responseContent))
+                    var matchGroups = match.Groups;
+                    if (matchGroups.Count > 1)
                     {
-                        return responseContent;
+                        responseContent = match.Groups[1].Value;
+                        if (!string.IsNullOrEmpty(responseContent))
+                        {
+                            return responseContent;
+                        }
                     }
                 }
             }
+            var pinyin = GetPinyin(name);
+            Debug.LogWarning($"获取英文名称失败: {name} => {responseContent} => {pinyin}");
+            return pinyin;
         }
-        Debug.LogWarning($"获取英文名称失败: {name} => {responseContent}");
+        return name;
+    }
+
+    private string GetPinyin(string name)
+    {
+        StringBuilder stringBuilder = new StringBuilder();
+        foreach (var item in name)
+        {
+            if (item >= 0x4e00 && item <= 0x9fbb)
+            {
+                ChineseChar cc = new ChineseChar(item);
+                stringBuilder.Append(cc.Pinyins.FirstOrDefault());
+            }
+            else
+            {
+                stringBuilder.Append(item);
+            }
+        }
         return name;
     }
 
