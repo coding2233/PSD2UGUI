@@ -7,6 +7,7 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Security;
+using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -54,6 +55,7 @@ public class PSD2UGUIEditor : EditorWindow
                 _layerTreeView = new LayerTreeView(_treeViewState, layerNodeRoot);
             }
         }
+       
         _layerTreeView?.OnGUI(new Rect(0, 100, Screen.width, Screen.height));
         if (_layerTreeView != null)
         {
@@ -318,42 +320,11 @@ public class PSD2UGUIEditor : EditorWindow
     //获取英文名称
     private string GetEnglishName(string name)
     {
-        ServicePointManager.ServerCertificateValidationCallback = MyRemoteCertificateValidationCallback;
-        System.Net.ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
-        string url = @"https://fanyi.youdao.com/translate?&doctype=json&type=AUTO&i=" + name;
-        //创建
-        HttpWebRequest httpWebRequest = (HttpWebRequest)HttpWebRequest.Create(url);
-        //设置请求方法
-        httpWebRequest.Method = "GET";
-        //请求超时时间
-        httpWebRequest.Timeout = 20000;
-        httpWebRequest.Headers.Add("Accept-Language", "zh-cn,en-us;q=0.5");
-        //  Request.Headers.Add("Accept-Encoding", "gzip, deflate");
-
-        httpWebRequest.AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate;
-        httpWebRequest.KeepAlive = true;
-        httpWebRequest.ProtocolVersion = HttpVersion.Version11;
-        httpWebRequest.Method = "GET";
-        httpWebRequest.Accept = "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8";
-        httpWebRequest.Host = "fanyi.youdao.com";
-        //Request.Accept = "text/json,*/*;q=0.5";
-        //Request.Headers.Add("Accept-Charset", "utf-8;q=0.7,*;q=0.7");
-        //Request.Headers.Add("Accept-Encoding", "gzip, deflate, x-gzip, identity; q=0.9");
-        httpWebRequest.UserAgent = @"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/67.0.3396.87 Safari/537.36";
-        //httpWebRequest.Referer = url;
-        httpWebRequest.IfModifiedSince = DateTime.UtcNow;
-        //发送请求
-        HttpWebResponse httpWebResponse = (HttpWebResponse)httpWebRequest.GetResponse();
-        //利用Stream流读取返回数据
-        StreamReader streamReader = new StreamReader(httpWebResponse.GetResponseStream(), Encoding.UTF8);
-        //获得最终数据，一般是json
-        string responseContent = streamReader.ReadToEnd();
-        streamReader.Close();
-        httpWebResponse.Close();
+        var responseContent = Youdao(name).Replace("\n","").Replace("\r","").Replace(" ","");
         if (!string.IsNullOrEmpty(responseContent))
         {
-            string regexPattern = "\"tgt\":\"(.+)\"";
-            var match = Regex.Match(responseContent, regexPattern);
+            string regexPattern = ",\"translation\":\\[\"(.+)\"\\],";
+            var match = Regex.Match(responseContent, regexPattern,RegexOptions.Singleline);
             if (match.Success && match.Groups != null)
             {
                 var matchGroups = match.Groups;
@@ -367,7 +338,7 @@ public class PSD2UGUIEditor : EditorWindow
                 }
             }
         }
-        Debug.LogWarning($"获取英文名称失败: ");
+        Debug.LogWarning($"获取英文名称失败: {name} => {responseContent}");
         return name;
     }
 
@@ -435,6 +406,104 @@ public class PSD2UGUIEditor : EditorWindow
         }
         return isOk;
     }
+
+
+    private string Youdao(string queryText)
+    {
+        Dictionary<String, String> dic = new Dictionary<String, String>();
+        string url = "https://openapi.youdao.com/api";
+        string appKey = "0d8ce13fe65cc10e";
+        string appSecret = "NjxbXZVwT7Gi5v70NApIbBOpq8pi8o4A";
+        string salt = Guid.NewGuid().ToString();//DateTime.Now.Millisecond.ToString()
+        dic.Add("from", "auto");
+        dic.Add("to", "auto");
+        dic.Add("signType", "v3");
+        TimeSpan ts = (DateTime.UtcNow - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+        long millis = (long)ts.TotalMilliseconds;
+        string curtime = Convert.ToString(millis / 1000);
+        dic.Add("curtime", curtime);
+        string signStr = appKey + YoudaoTruncate(queryText) + salt + curtime + appSecret; ;
+        string sign = YoudaoComputeHash(signStr, new SHA256CryptoServiceProvider());
+        dic.Add("q", Uri.EscapeDataString(queryText));
+        dic.Add("appKey", appKey);
+        dic.Add("salt", salt);
+        dic.Add("sign", sign);
+        return YoudaoPost(url, dic);
+    }
+
+    private static string YoudaoTruncate(string q)
+    {
+        if (q == null)
+        {
+            return null;
+        }
+        int len = q.Length;
+        return len <= 20 ? q : (q.Substring(0, 10) + len + q.Substring(len - 10, 10));
+    }
+    private string YoudaoComputeHash(string input, HashAlgorithm algorithm)
+    {
+        Byte[] inputBytes = Encoding.UTF8.GetBytes(input);
+        Byte[] hashedBytes = algorithm.ComputeHash(inputBytes);
+        return BitConverter.ToString(hashedBytes).Replace("-", "");
+    }
+
+    private string YoudaoPost(string url, Dictionary<String, String> dic)
+    {
+        ServicePointManager.ServerCertificateValidationCallback = MyRemoteCertificateValidationCallback;
+
+        string result = "";
+        HttpWebRequest req = (HttpWebRequest)WebRequest.Create(url);
+
+        req.Timeout = 20000;
+        req.Headers.Add("Accept-Language", "zh-cn,en-us;q=0.5");
+        //  Request.Headers.Add("Accept-Encoding", "gzip, deflate");
+
+        req.AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate;
+        req.KeepAlive = true;
+        req.ProtocolVersion = HttpVersion.Version11;
+        req.Accept = "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8";
+        //Request.Accept = "text/json,*/*;q=0.5";
+        //Request.Headers.Add("Accept-Charset", "utf-8;q=0.7,*;q=0.7");
+        //Request.Headers.Add("Accept-Encoding", "gzip, deflate, x-gzip, identity; q=0.9");
+        req.UserAgent = @"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/67.0.3396.87 Safari/537.36";
+        //httpWebRequest.Referer = url;
+        req.IfModifiedSince = DateTime.UtcNow;
+
+        req.Method = "POST";
+        req.ContentType = "application/x-www-form-urlencoded";
+
+        StringBuilder builder = new StringBuilder();
+        int i = 0;
+        foreach (var item in dic)
+        {
+            if (i > 0)
+                builder.Append("&");
+            builder.AppendFormat("{0}={1}", item.Key, item.Value);
+            i++;
+        }
+        byte[] data = Encoding.UTF8.GetBytes(builder.ToString());
+        req.ContentLength = data.Length;
+        using (Stream reqStream = req.GetRequestStream())
+        {
+            reqStream.Write(data, 0, data.Length);
+            reqStream.Close();
+        }
+        HttpWebResponse resp = (HttpWebResponse)req.GetResponse();
+        if (resp.ContentType.ToLower().Equals("audio/mp3"))
+        {
+            //SaveBinaryFile(resp, "合成的音频存储路径");
+        }
+        else
+        {
+            Stream stream = resp.GetResponseStream();
+            using (StreamReader reader = new StreamReader(stream, Encoding.UTF8))
+            {
+                result = reader.ReadToEnd();
+            }
+            Console.WriteLine(result);
+        }
+        return result;
+    }
 }
 
 class LayerTreeView : TreeView
@@ -479,27 +548,4 @@ class LayerNode
     public Layer Layer;
     public string SpritePath;
     public List<LayerNode> Children=new List<LayerNode>();
-}
-
-
-[System.Serializable]
-class YoudaoResult
-{
-    public string type;
-    public int errorCode;
-    public float elapsedTime;
-    public List<List<YoudaoTranslate>> translateResult = new List<List<YoudaoTranslate>>();
-}
-
-//[System.Serializable]
-//class YoudaoTranslateResult
-//{
-//    public List<YoudaoTranslate> translateResult = new List<YoudaoTranslate>();
-//}
-
-[System.Serializable]
-class YoudaoTranslate
-{
-    public string src;
-    public string tgt;
 }
