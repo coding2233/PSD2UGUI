@@ -5,7 +5,11 @@ using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net;
+using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
+using System.Text.RegularExpressions;
 using UnityEditor;
 using UnityEditor.IMGUI.Controls;
 using UnityEngine;
@@ -53,7 +57,7 @@ public class PSD2UGUIEditor : EditorWindow
                 _layerTreeView = new LayerTreeView(_treeViewState, layerNodeRoot);
             }
         }
-        _layerTreeView?.OnGUI(new Rect(0, 100, Screen.width, Screen.height-100));
+        _layerTreeView?.OnGUI(new Rect(0, 100, Screen.width, Screen.height));
         if (_layerTreeView != null)
         {
             GUILayout.BeginHorizontal();
@@ -71,7 +75,9 @@ public class PSD2UGUIEditor : EditorWindow
                     }
                 }
             }
+            GUILayout.EndHorizontal();
 
+            GUILayout.BeginHorizontal();
             if (GUILayout.Button("Export sprites"))
             {
                 ExportSprites();
@@ -201,6 +207,10 @@ public class PSD2UGUIEditor : EditorWindow
 
     private Sprite SaveAsset(Texture2D tex, string suffix)
     {
+        suffix = CheckName(suffix);
+        var englishName = GetEnglishName(suffix);
+        suffix = CheckName(englishName,"_");
+
         string path = Path.Combine(_exportAssetPath, $"{suffix}.png");
         string dir = Path.GetDirectoryName(path);
         if (!Directory.Exists(dir))
@@ -233,8 +243,70 @@ public class PSD2UGUIEditor : EditorWindow
         return sprite;
     }
 
+    //获取英文名称
+    private string GetEnglishName(string name)
+    {
+        ServicePointManager.ServerCertificateValidationCallback = MyRemoteCertificateValidationCallback;
+        System.Net.ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
+        string url = @"https://fanyi.youdao.com/translate?&doctype=json&type=AUTO&i=" + name;
+        //创建
+        HttpWebRequest httpWebRequest = (HttpWebRequest)HttpWebRequest.Create(url);
+        //设置请求方法
+        httpWebRequest.Method = "GET";
+        //请求超时时间
+        httpWebRequest.Timeout = 20000;
+        httpWebRequest.Headers.Add("Accept-Language", "zh-cn,en-us;q=0.5");
+        //  Request.Headers.Add("Accept-Encoding", "gzip, deflate");
+
+        httpWebRequest.AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate;
+        httpWebRequest.KeepAlive = true;
+        httpWebRequest.ProtocolVersion = HttpVersion.Version11;
+        httpWebRequest.Method = "GET";
+        httpWebRequest.Accept = "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8";
+        httpWebRequest.Host = "fanyi.youdao.com";
+        //Request.Accept = "text/json,*/*;q=0.5";
+        //Request.Headers.Add("Accept-Charset", "utf-8;q=0.7,*;q=0.7");
+        //Request.Headers.Add("Accept-Encoding", "gzip, deflate, x-gzip, identity; q=0.9");
+        httpWebRequest.UserAgent = @"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/67.0.3396.87 Safari/537.36";
+        //httpWebRequest.Referer = url;
+        httpWebRequest.IfModifiedSince = DateTime.UtcNow;
+        //发送请求
+        HttpWebResponse httpWebResponse = (HttpWebResponse)httpWebRequest.GetResponse();
+        //利用Stream流读取返回数据
+        StreamReader streamReader = new StreamReader(httpWebResponse.GetResponseStream(), Encoding.UTF8);
+        //获得最终数据，一般是json
+        string responseContent = streamReader.ReadToEnd();
+        streamReader.Close();
+        httpWebResponse.Close();
+        if (!string.IsNullOrEmpty(responseContent))
+        {
+            string regexPattern = "\"tgt\":\"(.+)\"";
+            var match = Regex.Match(responseContent, regexPattern);
+            if (match.Success && match.Groups != null)
+            {
+                var matchGroups = match.Groups;
+                if (matchGroups.Count > 1)
+                {
+                    responseContent = match.Groups[1].Value;
+                    if (!string.IsNullOrEmpty(responseContent))
+                    {
+                        return responseContent;
+                    }
+                }
+            }
+        }
+        return name;
+    }
+
+
+    private string CheckName(string name, string replace = "")
+    {
+        name = Regex.Replace(name.Trim(), @"[^a-zA-Z0-9\u4e00-\u9fa5\s]", "").Trim().Replace(" ", replace).Trim();
+        return name;
+    }
+
     //获取文件的md5值
-    public string GetFileMD5(string filePath)
+    private string GetFileMD5(string filePath)
     {
         try
         {
@@ -254,12 +326,42 @@ public class PSD2UGUIEditor : EditorWindow
     }
 
     //获取文件的md5值
-    public string GetFileMD5(byte[] data)
+
+    private string GetFileMD5(byte[] data)
     {
         System.Security.Cryptography.MD5 md5 = new System.Security.Cryptography.MD5CryptoServiceProvider();
         byte[] toData = md5.ComputeHash(data);
         string fileMD5 = BitConverter.ToString(toData).Replace("-", "").ToLower();
         return fileMD5;
+    }
+
+    private bool MyRemoteCertificateValidationCallback(System.Object sender,
+    X509Certificate certificate, X509Chain chain, SslPolicyErrors sslPolicyErrors)
+    {
+        bool isOk = true;
+        // If there are errors in the certificate chain,
+        // look at each error to determine the cause.
+        if (sslPolicyErrors != SslPolicyErrors.None)
+        {
+            for (int i = 0; i < chain.ChainStatus.Length; i++)
+            {
+                if (chain.ChainStatus[i].Status == X509ChainStatusFlags.RevocationStatusUnknown)
+                {
+                    continue;
+                }
+                chain.ChainPolicy.RevocationFlag = X509RevocationFlag.EntireChain;
+                chain.ChainPolicy.RevocationMode = X509RevocationMode.Online;
+                chain.ChainPolicy.UrlRetrievalTimeout = new TimeSpan(0, 1, 0);
+                chain.ChainPolicy.VerificationFlags = X509VerificationFlags.AllFlags;
+                bool chainIsValid = chain.Build((X509Certificate2)certificate);
+                if (!chainIsValid)
+                {
+                    isOk = false;
+                    break;
+                }
+            }
+        }
+        return isOk;
     }
 }
 
@@ -304,4 +406,27 @@ class LayerNode
     public Layer Layer;
     public Sprite Sprite;
     public List<LayerNode> Children=new List<LayerNode>();
+}
+
+
+[System.Serializable]
+class YoudaoResult
+{
+    public string type;
+    public int errorCode;
+    public float elapsedTime;
+    public List<List<YoudaoTranslate>> translateResult = new List<List<YoudaoTranslate>>();
+}
+
+//[System.Serializable]
+//class YoudaoTranslateResult
+//{
+//    public List<YoudaoTranslate> translateResult = new List<YoudaoTranslate>();
+//}
+
+[System.Serializable]
+class YoudaoTranslate
+{
+    public string src;
+    public string tgt;
 }
