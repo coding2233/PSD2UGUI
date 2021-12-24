@@ -29,6 +29,9 @@ public class PSD2UGUIEditor : EditorWindow
     private Dictionary<string, string> _uniqueSprites;
     private Vector2 _psdBaseLayerSize;
 
+    string _youdaoAppKey = "0d8ce13fe65cc10e";
+    string _youdaoAppSecret = "NjxbXZVwT7Gi5v70NApIbBOpq8pi8o4A";
+
     [MenuItem("Tools/PSD2UGUIEditor")]
     static void Main()
     {
@@ -38,11 +41,27 @@ public class PSD2UGUIEditor : EditorWindow
     private void OnEnable()
     {
         _treeViewState = new TreeViewState();
+
+        _youdaoAppKey = EditorPrefs.GetString("YoudaoAppKey","");
+        _youdaoAppSecret = EditorPrefs.GetString("YoudaoAppSecret","");
     }
 
 
     private void OnGUI()
     {
+        var youdaoAppKey = EditorGUILayout.TextField("YoudaoAppKey: ", _youdaoAppKey);
+        if (!string.IsNullOrEmpty(youdaoAppKey) && !youdaoAppKey.Equals(_youdaoAppKey))
+        {
+            _youdaoAppKey = youdaoAppKey;
+            EditorPrefs.SetString("YoudaoAppKey", _youdaoAppKey);
+        }
+        var youdaoAppSecret = EditorGUILayout.TextField("YoudaoAppSecret: ", _youdaoAppSecret);
+        if (!string.IsNullOrEmpty(youdaoAppSecret) && !youdaoAppSecret.Equals(_youdaoAppSecret))
+        {
+            _youdaoAppSecret = youdaoAppSecret;
+            EditorPrefs.SetString("YoudaoAppSecret", _youdaoAppSecret);
+        }
+
         GUILayout.Label(_psdFilePath);
         if (GUILayout.Button("Select psd file"))
         {
@@ -435,8 +454,8 @@ public class PSD2UGUIEditor : EditorWindow
     {
         Dictionary<String, String> dic = new Dictionary<String, String>();
         string url = "https://openapi.youdao.com/api";
-        string appKey = "0d8ce13fe65cc10e";
-        string appSecret = "NjxbXZVwT7Gi5v70NApIbBOpq8pi8o4A";
+        string appKey = _youdaoAppKey;
+        string appSecret = _youdaoAppSecret;
         string salt = Guid.NewGuid().ToString();//DateTime.Now.Millisecond.ToString()
         dic.Add("from", "auto");
         dic.Add("to", "auto");
