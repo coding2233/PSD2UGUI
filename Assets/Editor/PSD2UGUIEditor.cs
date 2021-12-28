@@ -29,8 +29,8 @@ public class PSD2UGUIEditor : EditorWindow
     private Dictionary<string, string> _uniqueSprites;
     private Vector2 _psdBaseLayerSize;
 
-    string _youdaoAppKey = "0d8ce13fe65cc10e";
-    string _youdaoAppSecret = "NjxbXZVwT7Gi5v70NApIbBOpq8pi8o4A";
+    string _youdaoAppKey = "";
+    string _youdaoAppSecret = "";
 
     [MenuItem("Tools/PSD2UGUIEditor")]
     static void Main()
@@ -75,7 +75,7 @@ public class PSD2UGUIEditor : EditorWindow
             }
         }
 
-        _layerTreeView?.OnGUI(new Rect(0, 100, Screen.width, Screen.height));
+        _layerTreeView?.OnGUI(new Rect(0, 200, Screen.width, Screen.height));
         if (_layerTreeView != null)
         {
             GUILayout.BeginHorizontal();
@@ -381,7 +381,9 @@ public class PSD2UGUIEditor : EditorWindow
                 stringBuilder.Append(item);
             }
         }
-        return name;
+
+        return stringBuilder.ToString();
+        //return name;
     }
 
     //去掉名称中的特殊符号以及多余的空格
